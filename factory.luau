@@ -650,7 +650,7 @@ local function AllocateContainers(resources, deallocate: boolean?)
 	]]
 end
 local function ReloadStorage(): Recipe
-	local ReservedStorage = Network:GetSubnet(1)
+	local ReservedStorage = Network:GetSubnet(111)
 	local totalResources: Recipe = {}
 	-- remember Solid, Liquid, and Gas filters connecting to network as well :skull:
 	-- power doesn't need a filter
