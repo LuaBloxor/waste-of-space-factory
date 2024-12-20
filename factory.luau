@@ -1,7 +1,7 @@
 local EMode = true
 local TargetTemp = 950
 local Anchor = GetPart("Anchor")
-local Ports = GetPorts(110)
+local ReactorPorts = GetPorts(110)
 local function SetPoly(Polysilicon, Type, Amount)
 	Polysilicon.PolysiliconMode = Type or "FlipFlop"
 	Polysilicon.Frequency = Amount or 1
@@ -17,8 +17,8 @@ local function SetRods(Target, Rods, Polysilicon)
 	if change < 0 then SetPoly(Polysilicon, 1, -change) end
 	return Target
 end
-local Events = {}
-for ind, Port in Ports do
+local Connections = {}
+for ind, Port in ReactorPorts do
 	local Reactor = GetPartFromPort(Port, "Reactor")
 	local Rods = 10
 	local Polysilicon = GetPartFromPort(Port, "Polysilicon")
@@ -39,7 +39,7 @@ for ind, Port in Ports do
 			end
 		end
 		if RodsInserted < 4 then
-			if not $self:IsGrounded() then Anchor.Anchored = true end
+			if not Microcontroller:IsGrounded() then Anchor.Anchored = true end
 			Dispenser:Dispense()
 			RodsInserted += 1
 		end
@@ -51,21 +51,20 @@ for ind, Port in Ports do
 		-- ((10-Rods)*RodsInserted-20)/3
 	end
 	if EMode then
-		Events[ind] = event
+		Connections[ind] = event
 	else
 		Reactor.Loop:Connect(event)
 	end
 end
-print("num of reactors", #Events)
+print("num of reactors", #Connections)
 if EMode then
-	GetPartFromPort(Ports[1], "Reactor").Loop:Connect(function()
-		for ind, Port in Ports do
-			Events[ind]()
+	GetPartFromPort(ReactorPorts[1], "Reactor").Loop:Connect(function()
+		for ind, Port in ReactorPorts do
+			Connections[ind]()
 		end
 	end)
 end
 
---!strict
 --[[
 crafing tree manipulation version 2.1.0
 ]]
@@ -135,7 +134,7 @@ type Resources = {
 	Capacity: {[resourceID]: number};
 }
 type System = {
-	Produce: (Recipe) -> (State);
+	Produce: (boolean, Recipe) -> (State, string?);
 	AddMachines: (string, WoSPart) -> ();
 	DisplayMessage: (any, string) -> ();
 }
@@ -243,7 +242,6 @@ local MachineDefs: MachineDefs = {
 		}
 	};
 }
-local RecipeList:{[string]:{[string]:number}}
 
 local GlobalDeposits:{[string]:string}={
 	Mountain="Stone,Ruby,Quartz,Silicon,Flint,Sulfur,Oil,Helium,Ice";
@@ -312,9 +310,9 @@ for deposit, resources in Deposits do
 end
 -- DATA END
 
-local inf = 1/0
+local _inf = 1/0
 local debugOn = true
-local db:(...any)->() = function(...) if not debugOn then return end print(`debug {table.concat(table.pack(...), " ")}`) end -- function()end
+local db:(...any)->() = function(...) if not debugOn then return end; print(`debug {table.concat(table.pack(...), " ")}`); end; -- function()end
 
 local FromID: {[number]: any} = {
 	"Power", "Hydrogen", "tinnitus", "Plasma"
@@ -382,12 +380,15 @@ else
 	WoS.GetPartFromPort,WoS.GetPartsFromPort,WoS.GetPort,WoS.JSONEncode,WoS.JSONDecode,WoS.TriggerPort,WoS.Beep,WoS.SandboxID,WoS.SandboxRunID=GetPartFromPort,GetPartsFromPort,GetPort,JSONEncode,JSONDecode,TriggerPort,Beep,SandboxID,SandboxRunID
 end
 local repr = require("repr")
-local Network = Network
+Network = Network --fix
 local debugRecipe = function(a) db(print(repr(FromRecipe(a,FromID)))) end
 
 local Assembler = WoS.GetPartFromPort(103,"Assembler") -- Get assembler for calc
 GetConfig = Memoized.new(function(index, storage)
-	if not Assembler then print("no assembler") return {} end
+	if not Assembler then
+		print("no assembler")
+		return {}
+	end
 	local recipe = Assembler:GetRecipe(FromID[index])
 	local configs = {}
 	if not recipe then return configs end
@@ -507,14 +508,11 @@ local MachinePorts:{[string]:any}={ -- initial machine ports to connect
 for deposit, index in MiningLaserDeposits do
 	MachinePorts["MiningLaser " .. deposit] = index
 end
---pilot.lua import
-local Main = Network:GetSubnet(1)
---end
+
 local Machines:Machines = {}
 local Ports : {any} = Network:GetParts("Port")
 print(`amount of ports {#Ports}`)
 local Parts = {}
-local ContainerSectors = {}
 for _, port in Ports do
 	local portID = port.PortID
 	local group = Parts[portID] or {}
@@ -548,7 +546,10 @@ local function AddMachines(machineName: string)
 	local machines: Machines = Machines[machineID] or {}
 	for machineSector, _ in Parts[MachinePorts[machineName]] do
 		local subnet = Network:GetSubnet(machineSector)
-		if MachineGUIDS[machineSector] then error("already exists") return end
+		if MachineGUIDS[machineSector] then
+			error("already exists")
+			return
+		end
 		MachineGUIDS[machineSector] = machineID
 		local switch = subnet:GetPartFromPort(machineSector, "Switch")
 		local machinesInSector = subnet:GetPartsFromPort(machineSector, partName)
@@ -567,15 +568,11 @@ local function AddMachines(machineName: string)
 end
 -- initialize storage system
 local StorageSectors: {[number]: {any}} = {{},{},{}}
+local ReservedStorageSectors: {[number]: {any}} = {{}, {}}
 local FreeSectors: {[number]: SectorSet} = {{length=0},{length=0}}
 local Allocation: {[resourceID]: SectorSet} = {}
-local StorageGroups = {
-	Bin = 1;
-	Tank = 2;
-	PowerCell = 3;
-	Battery = 3;
-}
-local function GetSectorStorage(sector,resources: Recipe?): Recipe
+
+local function _GetSectorStorage(sector,resources: Recipe?): Recipe
 	local resources: Recipe = resources or {}
 	local isPower = sector[1] == false
 	for _, container in sector[2] do
@@ -653,6 +650,7 @@ local function AllocateContainers(resources, deallocate: boolean?)
 	]]
 end
 local function ReloadStorage(): Recipe
+	local ReservedStorage = Network:GetSubnet(1)
 	local totalResources: Recipe = {}
 	-- remember Solid, Liquid, and Gas filters connecting to network as well :skull:
 	-- power doesn't need a filter
@@ -662,6 +660,10 @@ local function ReloadStorage(): Recipe
 		Network:GetParts("Bin"),
 		Network:GetParts("Tank"),
 		Merge(Network:GetParts("PowerCell"), Network:GetParts("Battery"), Network:GetParts("DevBattery"))
+	}
+	ReservedStorageSectors = {
+		ReservedStorage:GetParts("Bin"),
+		ReservedStorage:GetParts("Tank")
 	}
 	-- AR TEST
 		--[[
@@ -675,13 +677,9 @@ local function ReloadStorage(): Recipe
 	for storageGroup, sectors in StorageSectors do
 		for _, sector in sectors do
 			local containerResource = sector:GetResource()
-			local empty = false
-			if tostring(containerResource) == "nil" then
-				empty = true
-			end
-			local resource: number? = if empty then nil else ToID[containerResource]
+			local resource: number? = if containerResource == nil then nil else ToID[containerResource]
 			if resource then
-				totalResources[resource] = (totalResources[resource] or 0) + sector:GetAmount()
+				totalResources[resource] = (totalResources[resource] or 0) + sector:GetResourceAmount()
 			end
 			if storageGroup == 3 then continue end
 			if resource then
@@ -698,10 +696,22 @@ local function ReloadStorage(): Recipe
 			end
 		end
 	end
+	for storageGroup, sectors in ReservedStorageSectors do
+		for _, sector in sectors do
+			local containerResource = sector:GetResource() or sector.Resource
+			local resource: number? = if containerResource == "None" then nil else ToID[containerResource]
+			if resource then
+				totalResources[resource] = (totalResources[resource] or 0) + sector:GetResourceAmount()
+				local allocation:SectorSet = Allocation[resource] or {length=0}
+				Allocation[resource] = allocation
+				allocation[sector] = true
+				allocation.length += 1
+			end
+		end
+	end
 	return totalResources
 end
 -- initialize machine registry
-local Main = Network.new({WoS.GetPort(1)})
 --[[
 for _,i in  Main:GetParts() do
 	print(i.ClassName)
@@ -779,7 +789,6 @@ local EmptyList: {} = {}
 local function Craft(state: State, machineUsage, machine, craftingOperations, machineConfigs: {[any]:{[string]:any}}, switchConfigs)
 	-- print("empty error")
 	local usedMachines, unusedMachines = AdjustSwitches(machine, machineUsage[machine] or 0, switchConfigs)
-	local machines = Machines[machine]
 	local machineConfig = MachineTypes[machine].Config
 	local configs = machineConfigs
 	-- set switch state
@@ -812,7 +821,6 @@ local function OnMachineTick(state: State, System: System)
 	for machinePart, config in machineConfigs do
 		machinePart[config[1]] = config[2]
 	end
-	local possibleCrafts = {}
 	local generationLimit = Add(subMult, {state.Resources.Capacity, state.Resources.Storage})
 	local machineUsage: {[resourceID]: number} = {}
 	local newCraftsGroups={}
@@ -870,7 +878,7 @@ local function OnMachineTick(state: State, System: System)
 	return isEmpty
 end
 local System:System
-function Produce(mode: boolean, recipe: Recipe?): (State, string?)
+function Produce(mode: boolean, recipe: Recipe): (State, string?)
 	local resources = ReloadStorage()
 	local capacity = {}
 	local target
@@ -915,7 +923,10 @@ function Produce(mode: boolean, recipe: Recipe?): (State, string?)
 				allocation[k] = math.max(allocation[k] or 0, v)
 			end
 		end
-		if isRecursionEmpty then print("nothing left to recurse") break end
+		if isRecursionEmpty then
+			print("nothing left to recurse")
+			break
+		end
 	end
 	for k, v in target do
 		allocation[k] = math.max(allocation[k] or 0, v)
@@ -943,8 +954,8 @@ function Produce(mode: boolean, recipe: Recipe?): (State, string?)
 	CurrentState = state
 	return state, if mode then `produce: Repeating...` else `produce: Objective set.`
 end
-local safecallDebug = false
-local function safecall<x...,y...>(func:(x...)->y...):any  return (function(...)local err={pcall(func,...)} if safecallDebug then print("safecall ran") end if not table.unpack(err,1,1) then print(table.unpack(err,2,2)) else return table.unpack(err,2) end end) end
+--local safecallDebug = false
+--local function safecall<x...,y...>(func:(x...)->y...):any  return (function(...)local err={pcall(func,...)} if safecallDebug then print("safecall ran") end if not table.unpack(err,1,1) then print(table.unpack(err,2,2)) else return table.unpack(err,2) end end) end
 local Disk = GetPart("Disk")
 local Speaker = GetPart("Speaker")
 local Keyboard = GetPart("Keyboard")
