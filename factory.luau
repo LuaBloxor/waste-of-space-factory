@@ -677,7 +677,7 @@ local function ReloadStorage(): Recipe
 	for storageGroup, sectors in StorageSectors do
 		for _, sector in sectors do
 			local containerResource = sector:GetResource()
-			local resource: number? = if containerResource == nil then nil else ToID[containerResource]
+			local resource: number? = if tostring(containerResource) == "nil" then nil else ToID[containerResource]
 			if resource then
 				totalResources[resource] = (totalResources[resource] or 0) + sector:GetResourceAmount()
 			end
