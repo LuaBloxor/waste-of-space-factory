@@ -19,11 +19,12 @@ local function SetRods(Target, Rods, Polysilicon)
 end
 local Connections = {}
 for ind, Port in ReactorPorts do
-	local Reactor = GetPartFromPort(Port, "Reactor")
+	local ReactorNet = Network:GetSubnet(Port)
+	local Reactor = ReactorNet:GetPart("Reactor")
 	local Rods = 10
-	local Polysilicon = GetPartFromPort(Port, "Polysilicon")
-	local Dispenser = GetPartFromPort(Port, "Dispenser")
-	Reactor.TriggerWhenEmpty = true
+	local Polysilicon = ReactorNet:GetPart("Polysilicon")
+	local Dispenser = ReactorNet:GetPart("Dispenser")
+	Reactor.TriggerWhenEmpty = false
 	SetPoly(Polysilicon, "Activate", 10)
 	SetPoly(Polysilicon)
 	local event = function()
@@ -651,15 +652,16 @@ local function AllocateContainers(resources, deallocate: boolean?)
 end
 local function ReloadStorage(): Recipe
 	local ReservedStorage = Network:GetSubnet(111)
+	local DynamicStorage = Network:GetSubnet(112)
 	local totalResources: Recipe = {}
 	-- remember Solid, Liquid, and Gas filters connecting to network as well :skull:
 	-- power doesn't need a filter
 	FreeSectors = {{length=0},{length=0}}
 	Allocation = {}
 	StorageSectors = {
-		Network:GetParts("Bin"),
-		Network:GetParts("Tank"),
-		Merge(Network:GetParts("PowerCell"), Network:GetParts("Battery"), Network:GetParts("DevBattery"))
+		DynamicStorage:GetParts("Bin"),
+		DynamicStorage:GetParts("Tank"),
+		Merge(DynamicStorage:GetParts("PowerCell"), DynamicStorage:GetParts("Battery"), DynamicStorage:GetParts("DevBattery"))
 	}
 	ReservedStorageSectors = {
 		ReservedStorage:GetParts("Bin"),
